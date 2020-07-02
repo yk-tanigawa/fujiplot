@@ -14,9 +14,10 @@ CIRCOS_PATH = "circos"
 # CIRCOS_DEBUG_GROUP = "text,textplace"
 CIRCOS_DEBUG_GROUP = "summary"
 OUTPUT_BARPLOT = TRUE
-SCATTER_BACKGROUND_COLOR_ALPHA = 0.3
+SCATTER_BACKGROUND_COLOR_ALPHA = 0.1
 LARGE_POINT_SIZE = 16
 SMALL_POINT_SIZE = 8
+TINY_POINT_SIZE = 6
 
 # intermediate files
 COLOR_CONF =              file.path(script_dir, "config",      "color.conf")
@@ -24,6 +25,8 @@ SCATTER_BACKGROUND_CONF = file.path(script_dir, "config",      "scatter_backgrou
 HIGHLIGHT_DATA =          file.path(script_dir, "data_tracks", "highlights.txt")
 SCATTER_DATA =            file.path(script_dir, "data_tracks", "scatter.txt")
 STACKED_DATA =            file.path(script_dir, "data_tracks", "stacked.txt")
+OUTER_HIGHLIGHT_DATA =    file.path(script_dir, "data_tracks", "outer_highlights.txt")
+OUTER_1_DATA =            file.path(script_dir, "data_tracks", "outer_1.txt")
 LABEL_DATA =              file.path(script_dir, "data_tracks", "label.txt")
 
 ################################################################################
@@ -141,6 +144,7 @@ message(sprintf("* Highlights data (inter-categorical pleiotropic loci): %s", HI
 scatter = merge(df, traitlist, by = "TRAIT", all.x = T)
 scatter$value = nrow(traitlist) - scatter$idx
 scatter$parameters = str_c(scatter$parameters, str_c('z=', scatter$nsnps), str_c('glyph_size=', ifelse(scatter$nsnps > 1, LARGE_POINT_SIZE, SMALL_POINT_SIZE)), sep = ",")
+# scatter$parameters = str_c(scatter$parameters, str_c('z=', scatter$nsnps + ifelse(scatter$CONSEQUENCE != 'nc', 35, 0)), str_c('glyph_size=', ifelse(scatter$CONSEQUENCE != 'nc', LARGE_POINT_SIZE, SMALL_POINT_SIZE)), sep = ",")
 scatter = scatter[order(scatter$nsnps, decreasing=T),]
 write.table(scatter[c("CHR", "BP", "BP", "value", "parameters")], SCATTER_DATA, sep = "\t", row.names = F, col.names = F, quote = F)
 message(sprintf("* Scatter plot data (significant loci): %s", SCATTER_DATA))
@@ -172,7 +176,8 @@ message(sprintf("* Stacked bar plot data (# significant SNPs per locus): %s", ST
 
 ################################################################################
 # output label data
-label = df %>% filter(LOCUS_ID %in% inter_categorical$LOCUS_ID) %>%
+# label = df %>% filter(LOCUS_ID %in% inter_categorical$LOCUS_ID, GENE != "") %>%
+label = df %>% filter(GENE != "") %>%
                  group_by(LOCUS_ID) %>%
                    summarize(CHR = most_common(CHR),
                              BP = most_common(BP),
@@ -180,6 +185,29 @@ label = df %>% filter(LOCUS_ID %in% inter_categorical$LOCUS_ID) %>%
 write.table(label[c("CHR", "BP", "BP", "GENE")], LABEL_DATA, sep = "\t", row.names = F, col.names = F, quote = F)
 message(sprintf("* Label data (name of inter-categorical pleiotropic loci): %s", LABEL_DATA))
 
+################################################################################
+# output outer scatter plot data
+category_idx = data.frame(CATEGORY=unique(traitlist$CATEGORY), stringsAsFactors=F) %>%
+mutate(value=length(unique(traitlist$CATEGORY)) - 1:n())
+
+outer_1 = scatter %>%
+select(CHR, BP, CATEGORY.x, nsnps) %>%
+inner_join(label %>% select(CHR, BP) %>% mutate(BP = as.numeric(BP)), by=c('CHR', 'BP')) %>%
+rename('CATEGORY'='CATEGORY.x') %>%
+unique() %>%
+left_join(category_idx, by='CATEGORY') %>%
+left_join(traitlist %>% select(CATEGORY, parameters) %>% unique(), by='CATEGORY') %>%
+# mutate(parameters=str_c(parameters, ',z=', nsnps, ',glyph_size=', SMALL_POINT_SIZE)) %>%
+mutate(parameters=str_c(parameters, ',z=', nsnps)) %>%
+arrange(-nsnps)
+
+write.table(outer_1[c("CHR", "BP", "BP", "value", "parameters")], OUTER_1_DATA, sep = "\t", row.names = F, col.names = F, quote = F)
+message(sprintf("* Outer scatter plot data (# categories with significant SNPs): %s", OUTER_1_DATA))
+
+################################################################################
+# output outer highlight data
+write.table(label[c("CHR", "BP", "BP")], OUTER_HIGHLIGHT_DATA, sep = "\t", row.names = F, col.names = F, quote = F)
+message(sprintf("* Outer highlights data (coding hits per cetegory): %s", OUTER_HIGHLIGHT_DATA))
 
 ################################################################################
 # call circos
@@ -206,6 +234,8 @@ for(f in c(
   HIGHLIGHT_DATA,
   SCATTER_DATA,
   STACKED_DATA,
+  OUTER_HIGHLIGHT_DATA,
+  OUTER_1_DATA,
   LABEL_DATA
 )){
   if (file.exists(f)) file.remove(f)
